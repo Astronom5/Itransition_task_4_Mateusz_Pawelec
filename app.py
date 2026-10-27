@@ -31,8 +31,9 @@ def load_data():
 
 
 books, users, orders = load_data()
+orders_t = orders.assign(date=pd.to_datetime(orders["date"]))
 tables = {"books": books, "users": users,
-          "orders": orders.assign(date=pd.to_datetime(orders["date"]))}
+          "orders": orders_t.assign(year=orders_t["date"].dt.year, month=orders_t["date"].dt.month)}
 
 store = st.sidebar.radio(
     "Store",

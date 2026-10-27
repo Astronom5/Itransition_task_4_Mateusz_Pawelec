@@ -17,11 +17,11 @@ def query(tables, table, store="all", where=None, group_by=None, metric="count",
         df = df.query(where)
     if not group_by:
         value = len(df) if metric == "count" else df[column].agg(metric)
-        return {"value": _to_python(value)}
+        return {"value": _to_python(value), "rows_matched": len(df)}
     groups = df.groupby(group_by)
     result = groups.size() if metric == "count" else groups[column].agg(metric)
     result = result.sort_values(ascending=False).head(20).rename("value").reset_index()
-    return result.to_dict("records")
+    return {"rows_matched": len(df), "groups": result.to_dict("records")}
 
 
 def unique_authors(tables, store):
@@ -70,11 +70,20 @@ TOOLS = [
 
 def ask(client, question, history, tables, store):
     schema = "\n".join(f"{name}: {list(df.columns)}" for name, df in tables.items())
+    dates = tables["orders"]["date"]
+    stores = sorted(tables["orders"]["store_number"].unique().tolist())
     system = (
         "Answer questions about a bookstore chain's data using the tools only. "
+        "Always ask if the data provided is sufficient and provide on what data you run calculations"
         "Never calculate or recall numbers yourself; quote tool results exactly. "
-        "If the tools cannot answer, say so. State your assumptions.\n"
+        "Never assume facts about the data (years, stores, values): use only tool results "
+        "and the facts below. If the tools cannot answer, say so. State your assumptions.\n"
+        f"Order dates run from {dates.min().date()} to {dates.max().date()}. Stores: {stores}.\n"
         f"Tables and columns:\n{schema}\n"
+        "For date questions use the year and month columns of orders (month is 1-12). "
+        "If the question gives no year, group by year and report every year.\n"
+        "If a result has rows_matched = 0, say that no rows matched and mention the date range; "
+        "never conclude that nothing was sold.\n"
         f"The dashboard shows store {store}; use it unless the question names other stores or says all."
     )
     messages = [{"role": "system", "content": system}, *history,
