@@ -2,10 +2,11 @@ import pandas as pd
 from Cleaner import Cleaner
 import streamlit as st
 from Loader import read
+import analytics as an
+import assistant
+from openai import OpenAI, RateLimitError
 
-
-def filter_by_store(df, store_number):
-    return df[df["store_number"] == store_number].drop(columns="store_number")
+client = OpenAI(api_key=st.secrets["GROQ_API_KEY"], base_url="https://api.groq.com/openai/v1")
 
 
 @st.cache_data
@@ -25,10 +26,13 @@ def load_data():
     books = pd.concat(books_list, ignore_index=True)
     users = pd.concat(users_list, ignore_index=True)
     orders = pd.concat(orders_list, ignore_index=True)
+
     return books, users, orders
 
 
 books, users, orders = load_data()
+tables = {"books": books, "users": users,
+          "orders": orders.assign(date=pd.to_datetime(orders["date"]))}
 
 store = st.sidebar.radio(
     "Store",
@@ -36,20 +40,14 @@ store = st.sidebar.radio(
     index=0,
 )
 
-orders_f = filter_by_store(orders, store)
-users_f = filter_by_store(users, store)
-books_f = filter_by_store(books, store)
+orders_f = an.filter_by_store(orders, store)
+users_f = an.filter_by_store(users, store)
+books_f = an.filter_by_store(books, store)
 
-tab1, tab2, tab3 = st.tabs(["Revenue", "Authors", "Customers"])
+tab1, tab2, tab3, tab4 = st.tabs(["Revenue", "Authors", "Customers", "Assistant"])
 
 with tab1:
-    daily_revenue = (
-        orders_f
-        .groupby('date', as_index=False)['paid_price'].sum()
-        .rename(columns={'paid_price': 'daily_amount'})
-        .assign(rank=lambda df: df["daily_amount"].rank(ascending=False, method='dense'))
-        .sort_values(by='date')
-    )
+    daily_revenue = an.count_daily_revenue(orders_f)
 
     st.line_chart(daily_revenue, x="date", y="daily_amount")
     st.dataframe(
@@ -60,26 +58,14 @@ with tab1:
     )
 
 with tab2:
-    unique_authors = (
-        books_f["author"]
-        .dropna()
-        .str.strip()
-        .str.lower()
-        .str.split(r"\s*,\s*")
-        .apply(frozenset)
-        .nunique()
-    )
+    unique_authors = an.count_unique_authors(books_f)
 
     st.metric(f'Unique authors in store {store}', unique_authors)
 
     with st.container(border=True):
         st.subheader("Top Selling author (with their book)")
         st.dataframe(
-            orders_f
-            .groupby('book_id', as_index=False)['quantity'].sum()
-            .rename(columns={'quantity': 'books_sold'})
-            .loc[lambda d: d["books_sold"] == d["books_sold"].max()]
-            .merge(books_f, left_on="book_id", right_on="id", how="left")
+            an.find_top_authors(orders_f, books_f)
         )
 
 with tab3:
@@ -97,14 +83,8 @@ with tab3:
     st.metric(f'Unique customers in store {store}', unique_users)
 
     try:
-        top_customer = (
-            orders_f[["user_id", "paid_price"]]
-            .merge(users_f, left_on="user_id", right_on="id")
-            .groupby(identifying_fields)
-            .agg(total=("paid_price", "sum"),
-                 ids=("user_id", lambda s: sorted(s.unique())))
-            .loc[lambda df: df["total"] == df["total"].max()]
-        )
+        top_customer = an.find_top_customer(orders_f, users_f, identifying_fields)
+
     except ValueError:
         top_customer = None
 
@@ -114,3 +94,20 @@ with tab3:
             st.dataframe(users_f.merge(top_customer, on=identifying_fields), hide_index=True)
         except TypeError:
             st.write("No identifying fields provided")
+
+with tab4:
+    if "chat" not in st.session_state:
+        st.session_state.chat = []
+    for m in st.session_state.chat:
+        st.chat_message(m["role"]).write(m["content"])
+
+    question = st.chat_input("Ask about the data")
+    if question:
+        st.chat_message("user").write(question)
+        try:
+            reply = assistant.ask(client, question, st.session_state.chat[-6:], tables, store)
+        except RateLimitError:
+            reply = "Rate limit reached, try again in a minute."
+        st.chat_message("assistant").write(reply)
+        st.session_state.chat += [{"role": "user", "content": question},
+                                  {"role": "assistant", "content": reply}]
