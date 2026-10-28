@@ -64,9 +64,10 @@ with tab2:
     st.metric(f'Unique authors in store {store}', unique_authors)
 
     with st.container(border=True):
-        st.subheader("Top Selling author (with their book)")
+        st.subheader("Top Selling author")
         st.dataframe(
-            an.find_top_authors(orders_f, books_f)
+            an.find_top_authors(orders_f, books_f),
+            hide_index=True
         )
 
 with tab3:

@@ -36,7 +36,14 @@ def top_customers(tables, store, identifying_fields):
     return top.head(20).to_dict("records")
 
 
-FUNCTIONS = {"query": query, "unique_authors": unique_authors, "top_customers": top_customers}
+def top_authors(tables, store):
+    orders = an.filter_by_store(tables["orders"], int(store))
+    books = an.filter_by_store(tables["books"], int(store))
+    return an.find_top_authors(orders, books).to_dict("records")
+
+
+FUNCTIONS = {"query": query, "unique_authors": unique_authors,
+             "top_customers": top_customers, "top_authors": top_authors}
 
 TOOLS = [
     {"type": "function", "function": {
@@ -65,6 +72,12 @@ TOOLS = [
             "store": {"type": "integer"},
             "identifying_fields": {"type": "array", "items": {"type": "string"}}},
                        "required": ["store", "identifying_fields"]}}},
+    {"type": "function", "function": {
+        "name": "top_authors",
+        "description": "Most popular author(s) in one store: the author whose books sold the most "
+                       "copies in total ('books_sold').",
+        "parameters": {"type": "object", "properties": {"store": {"type": "integer"}},
+                       "required": ["store"]}}},
 ]
 
 

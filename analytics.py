@@ -31,13 +31,27 @@ def find_top_customer(orders_df, users_df, ids):
     )
 
 
+# def find_top_authors(orders_df, books_df):
+#     return (
+#         orders_df
+#         .groupby('book_id', as_index=False)['quantity'].sum()
+#         .rename(columns={'quantity': 'books_sold'})
+#         .loc[lambda d: d["books_sold"] == d["books_sold"].max()]
+#         .merge(books_df, left_on="book_id", right_on="id", how="left")
+#     )
+
 def find_top_authors(orders_df, books_df):
     return (
         orders_df
         .groupby('book_id', as_index=False)['quantity'].sum()
+        .merge(books_df[['id', 'author']], left_on='book_id', right_on='id')
+        .dropna(subset=['author'])
+        .assign(author=lambda d: d['author'].str.strip().str.lower()
+                .str.split(r"\s*,\s*").apply(frozenset))
+        .groupby('author', as_index=False, sort=False)['quantity'].sum()
         .rename(columns={'quantity': 'books_sold'})
-        .loc[lambda d: d["books_sold"] == d["books_sold"].max()]
-        .merge(books_df, left_on="book_id", right_on="id", how="left")
+        .loc[lambda d: d['books_sold'] == d['books_sold'].max()]
+        .assign(author=lambda d: d['author'].apply(lambda s: ", ".join(sorted(s))))
     )
 
 
